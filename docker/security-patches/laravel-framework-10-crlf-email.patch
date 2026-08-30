@@ -1,0 +1,191 @@
+diff --git a/src/Illuminate/Mail/Mailables/Address.php b/src/Illuminate/Mail/Mailables/Address.php
+index 7a9ed2a..3ba1f99 100644
+--- a/src/Illuminate/Mail/Mailables/Address.php
++++ b/src/Illuminate/Mail/Mailables/Address.php
+@@ -2,6 +2,8 @@
+ 
+ namespace Illuminate\Mail\Mailables;
+ 
++use InvalidArgumentException;
++
+ class Address
+ {
+     /**
+@@ -27,6 +29,10 @@ class Address
+      */
+     public function __construct(string $address, ?string $name = null)
+     {
++        if (preg_match('/[\r\n]/', $address) > 0) {
++            throw new InvalidArgumentException('Email addresses may not contain line break characters.');
++        }
++
+         $this->address = $address;
+         $this->name = $name;
+     }
+diff --git a/src/Illuminate/Mail/Message.php b/src/Illuminate/Mail/Message.php
+index 170b6bc..8e957c1 100755
+--- a/src/Illuminate/Mail/Message.php
++++ b/src/Illuminate/Mail/Message.php
+@@ -5,6 +5,7 @@
+ use Illuminate\Contracts\Mail\Attachable;
+ use Illuminate\Support\Str;
+ use Illuminate\Support\Traits\ForwardsCalls;
++use InvalidArgumentException;
+ use Symfony\Component\Mime\Address;
+ use Symfony\Component\Mime\Email;
+ use Symfony\Component\Mime\Part\DataPart;
+@@ -54,8 +55,8 @@ public function __construct(Email $message)
+     public function from($address, $name = null)
+     {
+         is_array($address)
+-            ? $this->message->from(...$address)
+-            : $this->message->from(new Address($address, (string) $name));
++            ? $this->message->from(...$this->ensureAddressesAreSafe($address))
++            : $this->message->from($this->createAddress($address, (string) $name));
+ 
+         return $this;
+     }
+@@ -70,8 +71,8 @@ public function from($address, $name = null)
+     public function sender($address, $name = null)
+     {
+         is_array($address)
+-            ? $this->message->sender(...$address)
+-            : $this->message->sender(new Address($address, (string) $name));
++            ? $this->message->sender(...$this->ensureAddressesAreSafe($address))
++            : $this->message->sender($this->createAddress($address, (string) $name));
+ 
+         return $this;
+     }
+@@ -84,6 +85,8 @@ public function sender($address, $name = null)
+      */
+     public function returnPath($address)
+     {
++        $this->ensureAddressIsSafe($address);
++
+         $this->message->returnPath($address);
+ 
+         return $this;
+@@ -101,8 +104,8 @@ public function to($address, $name = null, $override = false)
+     {
+         if ($override) {
+             is_array($address)
+-                ? $this->message->to(...$address)
+-                : $this->message->to(new Address($address, (string) $name));
++                ? $this->message->to(...$this->ensureAddressesAreSafe($address))
++                : $this->message->to($this->createAddress($address, (string) $name));
+ 
+             return $this;
+         }
+@@ -138,8 +141,8 @@ public function cc($address, $name = null, $override = false)
+     {
+         if ($override) {
+             is_array($address)
+-                ? $this->message->cc(...$address)
+-                : $this->message->cc(new Address($address, (string) $name));
++                ? $this->message->cc(...$this->ensureAddressesAreSafe($address))
++                : $this->message->cc($this->createAddress($address, (string) $name));
+ 
+             return $this;
+         }
+@@ -175,8 +178,8 @@ public function bcc($address, $name = null, $override = false)
+     {
+         if ($override) {
+             is_array($address)
+-                ? $this->message->bcc(...$address)
+-                : $this->message->bcc(new Address($address, (string) $name));
++                ? $this->message->bcc(...$this->ensureAddressesAreSafe($address))
++                : $this->message->bcc($this->createAddress($address, (string) $name));
+ 
+             return $this;
+         }
+@@ -227,28 +230,70 @@ protected function addAddresses($address, $name, $type)
+ 
+             $addresses = collect($address)->map(function ($address, $key) {
+                 if (is_string($key) && is_string($address)) {
+-                    return new Address($key, $address);
++                    return $this->createAddress($key, $address);
+                 }
+ 
+                 if (is_array($address)) {
+-                    return new Address($address['email'] ?? $address['address'], $address['name'] ?? null);
++                    return $this->createAddress($address['email'] ?? $address['address'], $address['name'] ?? null);
+                 }
+ 
+                 if (is_null($address)) {
+-                    return new Address($key);
++                    return $this->createAddress($key);
+                 }
+ 
+-                return $address;
++                return $this->ensureAddressIsSafe($address);
+             })->all();
+ 
+             $this->message->{"{$type}"}(...$addresses);
+         } else {
+-            $this->message->{"add{$type}"}(new Address($address, (string) $name));
++            $this->message->{"add{$type}"}($this->createAddress($address, (string) $name));
+         }
+ 
+         return $this;
+     }
+ 
++    /**
++     * Create a safe Symfony address instance.
++     *
++     * @param  string  $address
++     * @param  string|null  $name
++     * @return \Symfony\Component\Mime\Address
++     */
++    protected function createAddress($address, $name = null)
++    {
++        $this->ensureAddressIsSafe($address);
++
++        return new Address($address, (string) $name);
++    }
++
++    /**
++     * Ensure the given address cannot inject additional headers or commands.
++     *
++     * @param  mixed  $address
++     * @return mixed
++     */
++    protected function ensureAddressIsSafe($address)
++    {
++        $addressString = $address instanceof Address ? $address->getAddress() : $address;
++
++        if (is_string($addressString) && preg_match('/[\r\n]/', $addressString) > 0) {
++            throw new InvalidArgumentException('Email addresses may not contain line break characters.');
++        }
++
++        return $address;
++    }
++
++    /**
++     * Ensure the given addresses cannot inject additional headers or commands.
++     *
++     * @param  array  $addresses
++     * @return array
++     */
++    protected function ensureAddressesAreSafe(array $addresses)
++    {
++        return array_map(fn ($address) => $this->ensureAddressIsSafe($address), $addresses);
++    }
++
+     /**
+      * Add an address debug header for a list of recipients.
+      *
+diff --git a/src/Illuminate/Validation/Concerns/ValidatesAttributes.php b/src/Illuminate/Validation/Concerns/ValidatesAttributes.php
+index b4335fe..4d59a27 100644
+--- a/src/Illuminate/Validation/Concerns/ValidatesAttributes.php
++++ b/src/Illuminate/Validation/Concerns/ValidatesAttributes.php
+@@ -827,6 +827,10 @@ public function validateEmail($attribute, $value, $parameters)
+             return false;
+         }
+ 
++        if (preg_match('/[\r\n]/', (string) $value) > 0) {
++            return false;
++        }
++
+         $validations = collect($parameters)
+             ->unique()
+             ->map(fn ($validation) => match (true) {

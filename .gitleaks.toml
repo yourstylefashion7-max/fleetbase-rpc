@@ -1,0 +1,15 @@
+title = "Fleetbase credential secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "fleetbase-live-api-key"
+description = "Fleetbase live API credential"
+regex = '''flb_live_[A-Za-z0-9]{16,}'''
+keywords = ["flb_live_"]
+
+[[allowlists]]
+description = "Composer package commit hashes are not AWS or generic API keys"
+targetRules = ["aws-access-token", "generic-api-key"]
+paths = ['''(^|/)api/composer\.lock$''']

@@ -130,6 +130,18 @@
         "sort-packages": true,
         "allow-plugins": {
             "php-http/discovery": true
+        },
+        "policy": {
+            "advisories": {
+                "ignore-id": {
+                    "PKSA-3r5d-mb8f-1qw9": "CVE-2026-48019 remediation is backported from Laravel 12.60.0 by docker/security-patches/laravel-framework-10-crlf-email.patch.",
+                    "PKSA-mdq4-51ck-6kdq": "Duplicate CVE-2026-48019 advisory; the upstream remediation is backported by docker/security-patches/laravel-framework-10-crlf-email.patch.",
+                    "PKSA-m5cs-t1y6-qpcs": "Not reachable in Laravel 10: the vulnerable LocalFilesystemAdapter signed-route implementation is not present, and Fleetbase registers no local temporary URL callback."
+                }
+            },
+            "abandoned": {
+                "audit": "report"
+            }
         }
     },
     "minimum-stability": "dev",
